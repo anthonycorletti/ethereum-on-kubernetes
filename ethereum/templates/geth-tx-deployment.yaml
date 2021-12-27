@@ -1,0 +1,108 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eth-geth-tx
+  labels:
+    app: eth-geth-tx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: eth-geth-tx
+  template:
+    metadata:
+      labels:
+        app: eth-geth-tx
+    spec:
+      containers:
+        - name: geth-tx
+          image: ethereum/client-go:release-1.8
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh"]
+          args:
+            - -c
+            - |
+              geth \
+              --bootnodes=$(cat /root/.ethereum/bootnodes) \
+              --rpc \
+              --rpcapi=eth,net,web3 \
+              --rpccorsdomain='*' \
+              --ws \
+              --networkid=$NETWORK_ID \
+              --ethstats=$HOSTNAME:$ETHSTATS_SECRET@$ETHSTATS_SVC \
+              --verbosity=5
+          env:
+            - name: ETHSTATS_SVC
+              value: eth-ethstats.default.svc.cluster.local
+            - name: ETHSTATS_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: eth-ethstats
+                  key: WS_SECRET
+            - name: NETWORK_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: eth-geth
+                  key: networkid
+          ports:
+            - name: rpc
+              containerPort: 8545
+            - name: ws
+              containerPort: 8546
+            - name: discovery-udp
+              containerPort: 30303
+              protocol: UDP
+            - name: discovery-tcp
+              containerPort: 30303
+          volumeMounts:
+            - name: data
+              mountPath: /root/.ethereum
+      initContainers:
+        - name: init-genesis
+          image: ethereum/client-go:release-1.8
+          imagePullPolicy: IfNotPresent
+          args:
+            - "init"
+            - "/var/geth/genesis.json"
+          volumeMounts:
+            - name: data
+              mountPath: /root/.ethereum
+            - name: config
+              mountPath: /var/geth
+        - name: get-bootnodes
+          image: ethereum/client-go:release-1.8
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh"]
+          args:
+            - -c
+            - |
+              apk add --no-cache curl
+              COUNT=0
+              echo "retreiving bootnodes from $BOOTNODE_REGISTRAR_SVC"
+              while [ $COUNT -le 90 ]
+              do
+                curl -m 5 -s $BOOTNODE_REGISTRAR_SVC | xargs echo -n >> /geth/bootnodes
+                if [ -s /geth/bootnodes ]
+                then
+                  cat /geth/bootnodes
+                  exit 0
+                fi
+                echo "no bootnodes found. retrying $COUNT..."
+                sleep 2 || break
+                COUNT=$((COUNT+1))
+              done
+              echo "WARNING. unable to find bootnodes. continuing but geth may not be able to find any peers."
+              exit 0
+          env:
+            - name: BOOTNODE_REGISTRAR_SVC
+              value: eth-bootnode-registrar.default.svc.cluster.local
+          volumeMounts:
+            - name: data
+              mountPath: /geth
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: eth-geth

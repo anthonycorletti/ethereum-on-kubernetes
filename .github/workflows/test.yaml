@@ -1,0 +1,38 @@
+name: testHelm
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "ethereum/**"
+  pull_request:
+    types: [opened, synchronize]
+    paths:
+      - "ethereum/**"
+
+jobs:
+  testHelm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+      - name: update ubuntu, install dependencies
+        run: |
+          sudo apt-get update -y
+
+          # install helm
+          curl https://baltocdn.com/helm/signing.asc | sudo apt-key add -
+          sudo apt-get install apt-transport-https --yes
+          echo "deb https://baltocdn.com/helm/stable/debian/ all main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
+          sudo apt-get update
+          sudo apt-get install helm
+
+          # install kubeval
+          wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+          tar xf kubeval-linux-amd64.tar.gz
+          sudo cp kubeval /usr/local/bin
+      - name: generate test manifest
+        run: helm template ethereum --values=ethereum/values.yaml > ethereum-test.yaml
+      - name: validate kubernetes resources
+        run: kubeval --ignore-missing-schemas ethereum-test.yaml

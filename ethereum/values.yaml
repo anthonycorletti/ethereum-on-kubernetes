@@ -1,0 +1,8 @@
+ethstats:
+  # echo -n "ethstatsSecret_" | base64
+  secret: ZXRoc3RhdHNTZWNyZXRf
+
+geth:
+  miner:
+    # echo -n "gethMinerSecret_" | base64
+    secret: Z2V0aE1pbmVyU2VjcmV0Xw==
